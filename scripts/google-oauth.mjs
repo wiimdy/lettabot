@@ -7,6 +7,7 @@
 
 import { createServer } from 'node:http';
 import { createInterface } from 'node:readline/promises';
+import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { google } from 'googleapis';
 import open from 'open';
 
@@ -19,24 +20,39 @@ async function prompt(question) {
   return answer.trim();
 }
 
-async function waitForCode(redirectPort) {
+function safeEqual(a, b) {
+  const ab = Buffer.from(a);
+  const bb = Buffer.from(b);
+  if (ab.length !== bb.length) return false;
+  return timingSafeEqual(ab, bb);
+}
+
+async function waitForCode(redirectPort, expectedState) {
   return new Promise((resolve, reject) => {
     const server = createServer((req, res) => {
-      const url = new URL(req.url, `http://localhost:${redirectPort}`);
+      const url = new URL(req.url, `http://127.0.0.1:${redirectPort}`);
       const code = url.searchParams.get('code');
+      const state = url.searchParams.get('state');
       const error = url.searchParams.get('error');
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-      if (code) {
-        res.end('<h2>OAuth code received. You can close this tab.</h2>');
+      if (error) {
+        res.end(`<h2>Error: ${error}</h2>`);
         server.close();
-        resolve(code);
-      } else {
-        res.end(`<h2>Error: ${error || 'no code'}</h2>`);
-        server.close();
-        reject(new Error(error || 'no code'));
+        reject(new Error(error));
+        return;
       }
+      if (!code || !state || !safeEqual(state, expectedState)) {
+        res.end('<h2>Error: missing or mismatched state parameter (possible CSRF)</h2>');
+        server.close();
+        reject(new Error('state mismatch'));
+        return;
+      }
+      res.end('<h2>OAuth code received. You can close this tab.</h2>');
+      server.close();
+      resolve(code);
     });
-    server.listen(redirectPort);
+    // Bind to loopback only so other machines on the LAN cannot intercept the code.
+    server.listen(redirectPort, '127.0.0.1');
     server.on('error', reject);
   });
 }
@@ -50,19 +66,21 @@ async function main() {
   }
 
   const port = 53682;
-  const redirectUri = `http://localhost:${port}`;
+  const redirectUri = `http://127.0.0.1:${port}`;
   const oauth2 = new google.auth.OAuth2(clientId, clientSecret, redirectUri);
+  const state = randomBytes(24).toString('hex');
   const authUrl = oauth2.generateAuthUrl({
     access_type: 'offline',
     prompt: 'consent',
     scope: SCOPES,
+    state,
   });
 
   console.log('\nOpening browser for Google OAuth consent...');
   console.log('If it does not open, visit:\n', authUrl, '\n');
   await open(authUrl);
 
-  const code = await waitForCode(port);
+  const code = await waitForCode(port, state);
   const { tokens } = await oauth2.getToken(code);
   if (!tokens.refresh_token) {
     console.error('No refresh_token returned. Revoke the app in Google Account settings and re-run with prompt=consent.');

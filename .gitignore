@@ -14,6 +14,11 @@ dist/
 # User data
 user-agents.json
 
+# Personal scheduler data stores (JSON files written by getDataDir())
+projects/
+todos/
+data/
+
 # Reference repos (cloned for research)
 *-reference/
 
