@@ -14,6 +14,8 @@ import { recoverOrphanedConversationApproval, isRecoverableConversationId, recov
 import { installSkillsToAgent, prependSkillDirsToPath } from '../skills/loader.js';
 
 import { createManageTodoTool } from '../tools/todo.js';
+import { createManageProjectTool } from '../tools/projects.js';
+import { createGoogleCalendarTool } from '../tools/google_calendar.js';
 import { syncTodosFromTool } from '../todo/store.js';
 import { recoverPendingApprovalsWithSdk } from './session-sdk-compat.js';
 import { createLogger } from '../logger.js';
@@ -184,7 +186,11 @@ export class SessionManager {
         ...(this.config.disallowedTools || []),
       ],
       cwd: this.config.workingDir,
-      tools: [createManageTodoTool(this.getTodoAgentKey())],
+      tools: [
+        createManageTodoTool(this.getTodoAgentKey()),
+        createManageProjectTool(),
+        createGoogleCalendarTool(),
+      ],
       // Memory filesystem (context repository): true -> --memfs, false -> --no-memfs, undefined -> leave unchanged
       ...(this.config.memfs !== undefined ? { memfs: this.config.memfs } : {}),
       ...(this.config.sleeptime ? { sleeptime: this.config.sleeptime } : {}),
